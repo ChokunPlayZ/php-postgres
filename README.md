@@ -83,6 +83,34 @@ Configure your application using standard environment variables (or customize th
 - `DB_USER` - Database username
 - `DB_PASS` - Database password
 
+## Building Custom Images Based on This Base Image
+
+You can easily build custom production images for your applications using this image as your base. 
+
+Create a `Dockerfile` in your application root:
+
+```dockerfile
+# 1. Use the pre-built image matching your desired PHP version
+FROM ghcr.io/chokunplayz/php-postgres:8.4
+
+# 2. Configure production settings if needed
+RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
+
+# 3. Add custom PHP ini configurations (optional)
+# RUN echo "memory_limit = 512M" > /usr/local/etc/php/conf.d/custom-limits.ini
+
+# 4. Copy your application code to the Apache document root
+COPY . /var/www/html/
+
+# 5. Run Composer installs if a composer.json is present
+RUN if [ -f "composer.json" ]; then \
+        composer install --no-dev --optimize-autoloader --prefer-dist; \
+    fi
+
+# 6. Secure ownership permissions for Apache www-data user
+RUN chown -R www-data:www-data /var/www/html
+```
+
 ## Local Development & Building
 
 You can build and test images locally using the provided `./build.sh` script, which builds from the unified `Dockerfile` using the `--build-arg PHP_VERSION` option.

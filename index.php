@@ -6,11 +6,12 @@ if (getenv('ENABLE_STARTER_DASHBOARD') !== '1') {
     return;
 }
 
-// PHP Apache PostgreSQL Starter Dashboard
+// PHP PostgreSQL Starter Dashboard
 // Dynamically verifies environment setup and provides configuration details.
 
 $php_version = PHP_VERSION;
-$server_software = $_SERVER['SERVER_SOFTWARE'] ?? 'Apache';
+$server_software = $_SERVER['SERVER_SOFTWARE'] ?? 'PHP';
+$is_nginx = stripos($server_software, 'nginx') !== false;
 $extensions = get_loaded_extensions();
 
 // Filter for database-related extensions
@@ -549,8 +550,12 @@ try {
                     To mount your custom code, map a volume to <code>/var/www/html</code> inside the container.
                 </p>
                 <div style="font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.5rem; color: var(--text-secondary);">
-                    <p>🌐 <strong>Port Forwarding:</strong> Map port 80 to access the Apache web server (e.g. <code>-p 8080:80</code>).</p>
+                    <p>🌐 <strong>Port Forwarding:</strong> Map port 80 to access the web server (e.g. <code>-p 8080:80</code>).</p>
+                    <?php if ($is_nginx): ?>
+                    <p>⚙️ <strong>Nginx Settings:</strong> Front-controller routing is enabled. Configure rewrites in <code>/etc/nginx/conf.d/default.conf</code>; <code>.htaccess</code> is not supported.</p>
+                    <?php else: ?>
                     <p>⚙️ <strong>Apache Settings:</strong> Rewrite and authentication rules are supported in <code>.htaccess</code>; PHP overrides are disabled.</p>
+                    <?php endif; ?>
                     <p>📦 <strong>Composer:</strong> Available globally in the shell as <code>composer</code>.</p>
                 </div>
             </div>
@@ -558,7 +563,7 @@ try {
     </main>
 
     <footer>
-        <p>PHP Apache PostgreSQL Base Image Stack &bull; Designed beautifully.</p>
+        <p>PHP PostgreSQL Base Image Stack &bull; Designed beautifully.</p>
     </footer>
 
     <script>

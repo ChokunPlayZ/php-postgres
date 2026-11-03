@@ -27,6 +27,7 @@ jobs:
       fail-fast: false
       matrix:
         php-version: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
+        flavor: ['apache', 'nginx']
         arch: ['amd64', 'arm64']
     steps:
     - name: Checkout repository
@@ -34,6 +35,9 @@ jobs:
 
     - name: Test local build command safety
       run: python3 tests/build-script-test.py
+
+    - name: Test Nginx process lifecycle
+      run: python3 tests/nginx-start-test.py
 
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v3
@@ -45,6 +49,7 @@ jobs:
       uses: docker/build-push-action@v6
       with:
         context: .
+        file: ${{ matrix.flavor == 'nginx' && 'Dockerfile.nginx' || 'Dockerfile' }}
         load: true
         pull: true
         no-cache: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
@@ -54,12 +59,12 @@ jobs:
         labels: |
           org.opencontainers.image.source=https://github.com/${{ github.repository }}
           org.opencontainers.image.revision=${{ github.sha }}
-          org.opencontainers.image.version=php-${{ matrix.php-version }}
-        cache-from: type=gha,scope=php${{ matrix.php-version }}-${{ matrix.arch }}
-        cache-to: type=gha,mode=max,scope=php${{ matrix.php-version }}-${{ matrix.arch }}
+          org.opencontainers.image.version=php-${{ matrix.php-version }}-${{ matrix.flavor }}
+        cache-from: type=gha,scope=php${{ matrix.php-version }}-${{ matrix.flavor }}-${{ matrix.arch }}
+        cache-to: type=gha,mode=max,scope=php${{ matrix.php-version }}-${{ matrix.flavor }}-${{ matrix.arch }}
 
-    - name: Test engine backport, PHP settings and Apache protections
-      run: bash tests/smoke.sh php-postgres:security-test
+    - name: Test engine backport, PHP settings and web server protections
+      run: bash tests/smoke.sh php-postgres:security-test ${{ matrix.flavor }}
 
     - name: Report all known image vulnerabilities (including unfixed)
       uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -77,7 +82,7 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: vulnerabilities-php${{ matrix.php-version }}-${{ matrix.arch }}
+        name: vulnerabilities-php${{ matrix.php-version }}-${{ matrix.flavor }}-${{ matrix.arch }}
         path: trivy-report.json
 
     - name: Block fixable high and critical vulnerabilities
@@ -105,10 +110,11 @@ jobs:
       if: github.event_name != 'pull_request'
       env:
         PHP_BRANCH: ${{ matrix.php-version }}
+        FLAVOR: ${{ matrix.flavor }}
         ARCH: ${{ matrix.arch }}
       run: |
         repository="${REGISTRY}/${IMAGE_NAME,,}"
-        reference="$repository:build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-php${PHP_BRANCH}-${ARCH}"
+        reference="$repository:build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-php${PHP_BRANCH}-${FLAVOR}-${ARCH}"
         docker tag php-postgres:security-test "$reference"
         docker push "$reference"
         mkdir -p "$RUNNER_TEMP/digests"
@@ -118,7 +124,7 @@ jobs:
       if: github.event_name != 'pull_request'
       uses: actions/upload-artifact@v4
       with:
-        name: digests-php${{ matrix.php-version }}-${{ matrix.arch }}
+        name: digests-php${{ matrix.php-version }}-${{ matrix.flavor }}-${{ matrix.arch }}
         path: ${{ runner.temp }}/digests/*
         retention-days: 1
 
@@ -133,6 +139,7 @@ jobs:
       fail-fast: false
       matrix:
         php-version: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
+        flavor: ['apache', 'nginx']
 
     steps:
     - name: Checkout repository
@@ -154,9 +161,12 @@ jobs:
       uses: docker/metadata-action@v5
       with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        flavor: |
+          latest=false
+          suffix=${{ matrix.flavor == 'nginx' && '-nginx' || '' }},onlatest=true
         tags: |
-          type=ref,event=branch,suffix=-php${{ matrix.php-version }}
-          type=ref,event=pr,suffix=-php${{ matrix.php-version }}
+          type=ref,event=branch,suffix=-php${{ matrix.php-version }}${{ matrix.flavor == 'nginx' && '-nginx' || '' }}
+          type=ref,event=pr,suffix=-php${{ matrix.php-version }}${{ matrix.flavor == 'nginx' && '-nginx' || '' }}
           type=semver,pattern={{version}}-php${{ matrix.php-version }}
           type=semver,pattern={{major}}.{{minor}}-php${{ matrix.php-version }}
           type=semver,pattern={{major}}-php${{ matrix.php-version }}
@@ -167,7 +177,7 @@ jobs:
     - name: Download tested platform digests
       uses: actions/download-artifact@v4
       with:
-        pattern: digests-php${{ matrix.php-version }}-*
+        pattern: digests-php${{ matrix.php-version }}-${{ matrix.flavor }}-*
         path: ${{ runner.temp }}/digests
         merge-multiple: true
 

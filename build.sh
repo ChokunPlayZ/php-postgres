@@ -1,14 +1,15 @@
 #!/bin/bash
 
 # Build script for PHP PostgreSQL Docker image
-# Builds from the unified Dockerfile and always refreshes the upstream base.
+# Builds either server flavor and always refreshes the upstream base.
 
 set -euo pipefail
 
 # Configuration
 IMAGE_NAME="php-postgres"
-IMAGE_TAG="8.4"
-DOCKERFILE="Dockerfile"
+PHP_VERSION="8.4"
+FLAVOR="apache"
+DOCKERFILE=""
 BUILD_FLAGS=(--pull)
 
 # Colors for output
@@ -70,7 +71,7 @@ build_image() {
     print_info "Using Dockerfile: $DOCKERFILE"
     
     # Build the image
-    if docker build "${BUILD_FLAGS[@]}" -f "$DOCKERFILE" --build-arg PHP_VERSION="$IMAGE_TAG" -t "$IMAGE_NAME:$IMAGE_TAG" .; then
+    if docker build "${BUILD_FLAGS[@]}" -f "$DOCKERFILE" --build-arg PHP_VERSION="$PHP_VERSION" -t "$IMAGE_NAME:$IMAGE_TAG" .; then
         print_success "Docker image built successfully: $IMAGE_NAME:$IMAGE_TAG"
     else
         print_error "Failed to build Docker image"
@@ -78,8 +79,8 @@ build_image() {
     fi
     
     # Never let an EOL or older branch replace the default latest tag.
-    if [[ "$IMAGE_TAG" == "8.4" ]] && docker tag "$IMAGE_NAME:$IMAGE_TAG" "$IMAGE_NAME:latest"; then
-        print_success "Image tagged as: $IMAGE_NAME:latest"
+    if [[ "$PHP_VERSION" == "8.4" ]] && docker tag "$IMAGE_NAME:$IMAGE_TAG" "$IMAGE_NAME:$LATEST_TAG"; then
+        print_success "Image tagged as: $IMAGE_NAME:$LATEST_TAG"
     fi
 }
 
@@ -115,7 +116,7 @@ main() {
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --name|--tag|--dockerfile)
+        --name|--tag|--flavor|--dockerfile)
             if [[ $# -lt 2 || -z "$2" || "$2" == --* ]]; then
                 print_error "Option $1 requires a value"
                 exit 1
@@ -128,7 +129,11 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --tag)
-            IMAGE_TAG="$2"
+            PHP_VERSION="$2"
+            shift 2
+            ;;
+        --flavor)
+            FLAVOR="$2"
             shift 2
             ;;
         --dockerfile)
@@ -145,13 +150,15 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --name NAME        Set the image name (default: php-postgres)"
             echo "  --tag TAG          Set the PHP version / tag (default: 8.4)"
-            echo "  --dockerfile FILE  Set the Dockerfile to use (default: Dockerfile)"
+            echo "  --flavor FLAVOR    Set the web server: apache or nginx (default: apache)"
+            echo "  --dockerfile FILE  Override the flavor's Dockerfile"
             echo "  --no-cache         Refresh OS packages and all build layers"
             echo "  -h, --help         Show this help message"
             echo ""
             echo "Examples:"
             echo "  $0                                    # Build with default settings"
             echo "  $0 --name my-php --tag 8.4            # Build with custom tag"
+            echo "  $0 --flavor nginx --tag 8.4           # Build php-postgres:8.4-nginx"
             echo "  $0 --dockerfile Dockerfile.custom    # Use a different Dockerfile"
             exit 0
             ;;
@@ -162,6 +169,23 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+case "$FLAVOR" in
+    apache)
+        DOCKERFILE="${DOCKERFILE:-Dockerfile}"
+        IMAGE_TAG="$PHP_VERSION"
+        LATEST_TAG=latest
+        ;;
+    nginx)
+        DOCKERFILE="${DOCKERFILE:-Dockerfile.nginx}"
+        IMAGE_TAG="$PHP_VERSION-nginx"
+        LATEST_TAG=latest-nginx
+        ;;
+    *)
+        print_error "Unsupported flavor: $FLAVOR (expected apache or nginx)"
+        exit 1
+        ;;
+esac
 
 # Run the main function
 main

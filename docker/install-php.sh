@@ -18,15 +18,21 @@ saved_apt_mark="$(apt-mark showmanual)"
 apt-get update
 apt-get upgrade -y --with-new-pkgs \
     -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
+runtime_packages="ca-certificates curl git unzip"
+server_packages=apache2-dev
+if command -v php-fpm > /dev/null; then
+    server_packages=""
+    runtime_packages="$runtime_packages nginx"
+fi
 # Intentional splitting: PHPIZE_DEPS is the official image's package list.
 # shellcheck disable=SC2086
 apt-get install -y --no-install-recommends \
-    $PHPIZE_DEPS \
-    apache2-dev libargon2-dev libcurl4-openssl-dev libonig-dev \
+    $PHPIZE_DEPS $server_packages \
+    libargon2-dev libcurl4-openssl-dev libonig-dev \
     libreadline-dev libsodium-dev libsqlite3-dev libssl-dev libxml2-dev \
     libpq-dev libpng-dev libjpeg-dev libfreetype6-dev libwebp-dev \
     libzip-dev libicu-dev libbz2-dev zlib1g-dev patch \
-    ca-certificates curl git unzip
+    $runtime_packages
 
 sh "$policy/patch-legacy-php.sh"
 php "$policy/security-policy.php"
@@ -52,9 +58,13 @@ docker-php-source delete
 apt-mark auto '.*' > /dev/null
 # Intentional splitting: apt-mark expects one argument per package.
 # shellcheck disable=SC2086
-apt-mark manual $saved_apt_mark ca-certificates curl git unzip > /dev/null
-# Retain runtime libraries used by PHP, its extensions and Apache's rebuilt module.
-find /usr/local /usr/lib/apache2/modules -type f \( -executable -o -name '*.so' \) \
+apt-mark manual $saved_apt_mark $runtime_packages > /dev/null
+# Retain runtime libraries used by PHP, its extensions and either rebuilt SAPI.
+set -- /usr/local
+if [ -d /usr/lib/apache2/modules ]; then
+    set -- "$@" /usr/lib/apache2/modules
+fi
+find "$@" -type f \( -executable -o -name '*.so' \) \
     -exec ldd '{}' ';' 2>/dev/null \
     | awk '/=>/ { path = $(NF-1); if (index(path, "/usr/local/") == 1) next; gsub("^/(usr/)?", "", path); print "*" path }' \
     | sort -u \

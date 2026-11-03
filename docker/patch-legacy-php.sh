@@ -48,7 +48,11 @@ make clean
 
 # Check both installed SAPIs, not just a marker or PHP's unchanged version string.
 nm -D /usr/local/bin/php | grep -q ' zend_mm_safe_error_ex$'
-find /usr/lib/apache2/modules -name 'libphp*.so' -exec nm -D '{}' ';' \
-    | grep -q ' zend_mm_safe_error_ex$'
+if command -v php-fpm > /dev/null; then
+    nm -D "$(command -v php-fpm)" | grep -q ' zend_mm_safe_error_ex$'
+else
+    find /usr/lib/apache2/modules -name 'libphp*.so' -exec nm -D '{}' ';' \
+        | grep -q ' zend_mm_safe_error_ex$'
+fi
 mkdir -p /usr/local/share/php-postgres
 printf '%s %s\n' "$version" "$commit" > /usr/local/share/php-postgres/php2shell-backport

@@ -1,7 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
-image="${1:?Usage: bash tests/smoke.sh IMAGE}"
+image="${1:?Usage: bash tests/smoke.sh IMAGE [apache|nginx]}"
+flavor="${2:-apache}"
+case "$flavor" in
+    apache) sapi=apache2handler ;;
+    nginx) sapi=fpm-fcgi ;;
+    *) echo >&2 "Unsupported flavor: $flavor"; exit 1 ;;
+esac
 root="$(cd "$(dirname "$0")/.." && pwd)"
 container="php-postgres-security-${RANDOM}-$$"
 cleanup() {
@@ -13,6 +19,10 @@ trap cleanup EXIT
 docker run --rm -v "$root/tests:/tests:ro" "$image" php /tests/security-policy-test.php
 docker run --rm -v "$root/tests:/tests:ro" "$image" php /tests/security-test.php
 docker run --rm "$image" composer --version
+if [[ "$flavor" == nginx ]]; then
+    docker run --rm "$image" nginx -t
+    docker run --rm "$image" php-fpm --test
+fi
 
 branch="$(docker run --rm "$image" php -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;')"
 case "$branch" in
@@ -38,19 +48,21 @@ port="$(docker port "$container" 80/tcp)"
 base="http://$port"
 curl --fail --silent --show-error --retry 30 --retry-connrefused --retry-delay 1 \
     --max-time 3 "$base/healthz" | grep -qx OK
-curl --fail --silent --show-error "$base/" | grep -qx 'PHP application container is running.'
+curl --fail --silent --show-error --retry 30 --retry-connrefused --retry-delay 1 \
+    --max-time 3 "$base/" | grep -qx 'PHP application container is running.'
 
 docker cp "$root/tests/security-test.php" "$container:/var/www/html/security-test.php"
 curl --fail --silent --show-error "$base/security-test.php" \
-    | python3 -c 'import json, sys; result = json.load(sys.stdin); assert result["ok"], result'
+    | python3 -c 'import json, sys; result = json.load(sys.stdin); assert result["ok"] and result["sapi"] == sys.argv[1], result' "$sapi"
 
 docker exec "$container" mkdir -p /var/www/html/.git /var/www/html/uploads /var/www/html/listing
 docker cp "$root/tests/fixtures/secret.txt" "$container:/var/www/html/.env"
 docker cp "$root/tests/fixtures/secret.txt" "$container:/var/www/html/.git/config"
+docker cp "$root/tests/fixtures/secret.txt" "$container:/var/www/html/composer.json"
 docker cp "$root/tests/fixtures/secret.txt" "$container:/var/www/html/listing/visible.txt"
 docker cp "$root/tests/fixtures/upload.php" "$container:/var/www/html/uploads/payload.php"
 docker cp "$root/tests/fixtures/upload.php" "$container:/var/www/html/uploads/payload.phtml"
-for path in /.env /.git/config /uploads/payload.php /uploads/payload.phtml /listing/; do
+for path in /.env /.git/config /composer.json /uploads/payload.php /uploads/payload.phtml /listing/; do
     status="$(curl --path-as-is --silent --show-error -o /dev/null -w '%{http_code}' "$base$path")"
     [[ "$status" == 403 ]] || { echo >&2 "$path returned $status, expected 403"; exit 1; }
 done
@@ -61,4 +73,28 @@ if printf '%s\n' "$headers" | grep -Eiq '^X-Powered-By:|^Server:.*(PHP|/[0-9])';
     exit 1
 fi
 printf '%s\n' "$headers" | grep -Eiq '^X-Content-Type-Options: nosniff'
+
+if [[ "$flavor" == nginx ]]; then
+    # Front-controller routing, static assets, missing scripts and source disclosure.
+    curl --fail --silent --show-error "$base/example/route?test=1" | grep -qx 'PHP application container is running.'
+    curl --fail --silent --show-error "$base/listing/visible.txt" | cmp - "$root/tests/fixtures/secret.txt"
+    [[ "$(curl --silent --show-error -o /dev/null -w '%{http_code}' "$base/missing.php")" == 404 ]]
+    for path in /uploads/payload.php/extra /uploads/payload.phtml/extra /uploads/payload.php.txt /security-test.php/extra; do
+        status="$(curl --path-as-is --silent --show-error -o /dev/null -w '%{http_code}' "$base$path")"
+        [[ "$status" == 403 ]] || { echo >&2 "$path returned $status, expected 403"; exit 1; }
+    done
+
+    # FPM's inherited EXPOSE metadata must not mean a public FastCGI listener.
+    docker exec "$container" php -r '$s = @fsockopen("127.0.0.1", 9000); if ($s) { fclose($s); exit(1); }'
+
+    # A failed FPM master must stop Nginx and the container, not serve stale liveness.
+    docker exec "$container" sh -c 'kill -TERM "$(cat /run/php-fpm.pid)"'
+    python3 -c 'import subprocess, sys; result = subprocess.run(["docker", "wait", sys.argv[1]], capture_output=True, text=True, timeout=20, check=True); assert int(result.stdout) != 0, result' "$container"
+    docker start "$container" > /dev/null
+    port="$(docker port "$container" 80/tcp)"
+    curl --fail --silent --show-error --retry 30 --retry-connrefused --retry-delay 1 \
+        --max-time 3 "http://$port/healthz" | grep -qx OK
+    docker stop --time 15 "$container" > /dev/null
+    [[ "$(docker inspect --format '{{.State.ExitCode}}' "$container")" == 0 ]]
+fi
 echo "Security smoke tests passed: $image"

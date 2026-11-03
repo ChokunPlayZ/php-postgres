@@ -1,0 +1,37 @@
+# Minor tags receive upstream security releases; the runtime policy rejects stale bases.
+ARG PHP_VERSION=8.4
+FROM php:${PHP_VERSION}-fpm
+
+COPY docker/ /usr/local/lib/php-postgres/
+
+# Share extensions, runtime checks and legacy engine backports with the Apache flavor.
+RUN sh /usr/local/lib/php-postgres/install-php.sh
+
+RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
+COPY docker/php-security.ini /usr/local/etc/php/conf.d/zz-security.ini
+COPY docker/php-fpm-security.conf /usr/local/etc/php-fpm.d/zz-php-postgres.conf
+COPY docker/nginx.conf /etc/nginx/nginx.conf
+COPY docker/nginx-default.conf /etc/nginx/conf.d/default.conf
+COPY docker/nginx-php-fpm.sh /usr/local/bin/nginx-php-fpm
+RUN set -eux; \
+    chmod 0755 /usr/local/bin/nginx-php-fpm; \
+    mkdir -p /usr/local/share/php-postgres; \
+    printf 'OK\n' > /usr/local/share/php-postgres/health.txt; \
+    php /usr/local/lib/php-postgres/security-policy.php; \
+    php-fpm --test; \
+    nginx -t
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+WORKDIR /var/www/html
+COPY index.php .
+RUN chown root:root /var/www/html /var/www/html/index.php \
+    && chmod 0755 /var/www/html \
+    && chmod 0644 /var/www/html/index.php
+
+EXPOSE 80
+STOPSIGNAL SIGTERM
+CMD ["nginx-php-fpm"]
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["curl", "--fail", "--silent", "--show-error", "--max-time", "3", "http://127.0.0.1/healthz"]

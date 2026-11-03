@@ -40,5 +40,5 @@ if (PHP_SAPI !== 'cli') {
 }
 header('Content-Type: application/json');
 http_response_code($errors ? 500 : 200);
-echo json_encode(['ok' => !$errors, 'errors' => $errors]);
+echo json_encode(['ok' => !$errors, 'errors' => $errors, 'sapi' => PHP_SAPI]);
 exit($errors ? 1 : 0);

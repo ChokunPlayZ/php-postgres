@@ -4,7 +4,7 @@ FROM php:${PHP_VERSION}-apache
 
 COPY docker/ /usr/local/lib/php-postgres/
 
-# Rebuild legacy engines with the official PHP2Shell backports before building extensions.
+# Rebuild legacy engines with pinned source backports before building extensions.
 RUN sh /usr/local/lib/php-postgres/install-php.sh
 
 RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"

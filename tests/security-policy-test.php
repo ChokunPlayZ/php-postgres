@@ -6,7 +6,7 @@ foreach ($accepted as $version) {
     validatePhpRuntime($version);
 }
 $backports = [
-    '7.4.33' => '712e60f9edfd03f0960fc4fc3c2c375f42b90aa2',
+    '7.4.33' => phpSourcePatchsetId('7.4'),
     '8.0.30' => '82f8f31b16a035c1b67cc253e79f7cc288f4cc20',
     '8.1.34' => '1d7dec178a094e6e75b229ce22754045f8c6070a',
 ];
@@ -22,10 +22,13 @@ foreach (['7.3.33', '7.4.32', '7.4.33', '8.0.30', '8.1.34', '8.2.34', '8.3.35',
     }
     throw new RuntimeException('Policy incorrectly accepted ' . $version);
 }
-try {
-    validatePhpRuntime('7.4.33', '7.4.33 82f8f31b16a035c1b67cc253e79f7cc288f4cc20');
-    throw new LogicException('Policy accepted the wrong backport');
-} catch (RuntimeException $expected) {
-    // Wrong-branch backports must never pass.
+foreach (['82f8f31b16a035c1b67cc253e79f7cc288f4cc20',
+    '712e60f9edfd03f0960fc4fc3c2c375f42b90aa2', 'patchset-sha256:invalid'] as $backport) {
+    try {
+        validatePhpRuntime('7.4.33', '7.4.33 ' . $backport);
+        throw new LogicException('Policy accepted the wrong or incomplete backport');
+    } catch (RuntimeException $expected) {
+        // Wrong-branch, old emergency-only and unidentified patch sets must fail.
+    }
 }
 echo "Runtime policy tests passed.\n";

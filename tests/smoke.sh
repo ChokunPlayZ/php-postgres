@@ -25,6 +25,10 @@ if [[ "$flavor" == nginx ]]; then
 fi
 
 branch="$(docker run --rm "$image" php -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;')"
+if [[ "$branch" == 7.4 ]]; then
+    docker run --rm --network none --memory 256m -v "$root/tests:/tests:ro" \
+        "$image" sh /tests/php74-regressions.sh
+fi
 case "$branch" in
     7.4|8.0|8.1)
         # Harmless bounded allocation: the official EOL patch must _exit on OOM,

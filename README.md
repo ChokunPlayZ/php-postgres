@@ -22,9 +22,11 @@ For **Nginx + PHP-FPM**, append `-nginx` to any of those tags: `8.4-nginx`, `8.4
 
 The build requires PHP **8.2.35 / 8.3.36 / 8.4.27 / 8.5.12 or newer within the same branch**, fixing **CVE-2026-109618 and CVE-2026-109619**. Stale or unsupported runtimes fail the build instead of producing an apparently patched image.
 
-For **7.4.33, 8.0.30 and 8.1.34**, the build applies the PHP security team's [official emergency source backports](https://www.php.net/archive/2026.php#2026-10-21-5), pinned to immutable commits and SHA-256 digests, and **recompiles both the CLI and the Apache module or PHP-FPM binary**. Extensions are built afterward, and the retained source archive is also patched. The backport record is `/usr/local/share/php-postgres/php2shell-backport`; the PHP version string is unchanged. Legacy OOM now terminates the worker immediately, without shutdown callbacks; expect failed requests and worker replacement when limits are reached.
+For **7.4.33**, the build applies the supplied **DirectAdmin CustomBuild patch series** (`001`–`003`, `100`–`143`), including PHP2Shell and the listed older security/compatibility fixes. Individual patches, their baseline and an extensible ordered checksum manifest are tracked in [`docker/patches/php-7.4/`](docker/patches/php-7.4/); see [patch maintenance instructions](docker/patches/README.md). For **8.0.30 and 8.1.34**, the build still applies the PHP security team's [official emergency source backports](https://www.php.net/archive/2026.php#2026-10-21-5), pinned to immutable commits and SHA-256 digests. The 7.4-specific series is never applied to PHP 8.x.
 
-**Legacy PHP remains end-of-life. These minimal backports address PHP2Shell, not all other known or future PHP CVEs.** Upgrade to maintained PHP or use an extended-security vendor if you need comprehensive legacy coverage. PHP 7.0–7.3 are not supported by this project. See [PHP's support schedule](https://www.php.net/supported-versions.php); PHP 8.2 reaches EOL on December 31, 2026.
+All legacy builds **recompile both the CLI and the Apache module or PHP-FPM binary**, then build extensions and retain the patched source archive for downstream builds. The backport record is `/usr/local/share/php-postgres/php2shell-backport` (7.4 records the manifest digest); 7.4's per-patch inventory is `/usr/local/share/php-postgres/php74-patches.sha256`. The PHP version string is unchanged. Legacy OOM terminates the worker immediately, without shutdown callbacks; expect failed requests and worker replacement when limits are reached.
+
+**Legacy PHP remains end-of-life. The supplied 7.4 series is not a guarantee of comprehensive or ongoing security coverage; 8.0/8.1's minimal backports address PHP2Shell only.** Upgrade to maintained PHP or use an extended-security vendor if you need comprehensive legacy coverage. PHP 7.0–7.3 are not supported by this project. See [PHP's support schedule](https://www.php.net/supported-versions.php); PHP 8.2 reaches EOL on December 31, 2026.
 
 Debian Bullseye bases use Debian's frozen archive for security packages because those package files are no longer on the live security mirror. Archive signatures remain verified, but **this does not provide ongoing OS security updates**. Newer Debian bases keep their normal repositories.
 
@@ -179,7 +181,7 @@ Use a native builder for legacy images: QEMU-emulated ARM64 builds can segfault 
 # Build a specific PHP version (e.g. PHP 8.4)
 ./build.sh --tag 8.4
 
-# Build PHP 7.4 with the emergency engine backport (still EOL)
+# Build PHP 7.4 with the supplied security patch series (still EOL)
 ./build.sh --tag 7.4 --no-cache
 
 # Build Nginx + PHP-FPM (php-postgres:8.4-nginx and latest-nginx)
@@ -193,6 +195,7 @@ bash tests/smoke.sh php-postgres:8.4-nginx nginx
 python3 tests/build-script-test.py
 python3 tests/smoke-command-test.py
 python3 tests/apt-sources-test.py
+python3 tests/php-patches-test.py
 python3 tests/http-readiness-test.py
 python3 tests/nginx-start-test.py # Lifecycle tests require Bash 4.3+; skipped on older Bash
 ```

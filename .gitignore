@@ -22,6 +22,6 @@ postgres_data/
 .env.local
 .env.production
 
-# Ignore build artifacts
+# Ignore build archives; keep individual source patches tracked
 *.tar
 *.tar.gz

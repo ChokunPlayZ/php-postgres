@@ -1,14 +1,14 @@
 #!/bin/sh
 set -eu
 
-# Official emergency backports linked from:
+# PHP 7.4 uses the complete, vendored DirectAdmin backport series, including PHP2Shell.
+# PHP 8.0/8.1 use the official emergency backports linked from:
 # https://www.php.net/archive/2026.php#2026-10-21-5
 # Pin both commit and patch digest; never execute a moving branch or an unchecked patch.
 version="$(php -r 'echo PHP_VERSION;')"
 case "$version" in
     7.4.33)
-        commit=712e60f9edfd03f0960fc4fc3c2c375f42b90aa2
-        checksum=5fe57ca6ee96d59b36c6e0ca842843c50884f177bef1e85234cf669b577f5e48
+        patch_directory=/usr/local/lib/php-postgres/patches/php-7.4
         ;;
     8.0.30)
         commit=82f8f31b16a035c1b67cc253e79f7cc288f4cc20
@@ -25,15 +25,21 @@ case "$version" in
     *) exit 0 ;;
 esac
 
-echo >&2 "WARNING: PHP $version is EOL. This emergency backport does not fix other legacy CVEs."
-patch_file="$(mktemp)"
-trap 'rm -f "$patch_file"' EXIT HUP INT TERM
-curl --fail --silent --show-error --location --retry 3 \
-    "https://github.com/php/php-src/commit/$commit.patch" -o "$patch_file"
-printf '%s  %s\n' "$checksum" "$patch_file" | sha256sum --check --strict
+echo >&2 "WARNING: PHP $version is EOL. Backports do not provide comprehensive security support."
 docker-php-source extract
 cd /usr/src/php
-patch --batch --forward --fuzz=0 -p1 < "$patch_file"
+if [ "$version" = 7.4.33 ]; then
+    sh /usr/local/lib/php-postgres/apply-php-patches.sh /usr/src/php "$patch_directory"
+    backport="patchset-sha256:$(sha256sum "$patch_directory/series.sha256" | cut -d ' ' -f1)"
+else
+    backport="$commit"
+    patch_file="$(mktemp)"
+    trap 'rm -f "$patch_file"' EXIT HUP INT TERM
+    curl --fail --silent --show-error --location --retry 3 \
+        "https://github.com/php/php-src/commit/$commit.patch" -o "$patch_file"
+    printf '%s  %s\n' "$checksum" "$patch_file" | sha256sum --check --strict
+    patch --batch --forward --fuzz=0 -p1 < "$patch_file"
+fi
 
 # Reuse the official image's configure options and compiler hardening. No eval.
 configure_options="$(php-config --configure-options)"
@@ -55,4 +61,7 @@ else
         | grep -q ' zend_mm_safe_error_ex$'
 fi
 mkdir -p /usr/local/share/php-postgres
-printf '%s %s\n' "$version" "$commit" > /usr/local/share/php-postgres/php2shell-backport
+printf '%s %s\n' "$version" "$backport" > /usr/local/share/php-postgres/php2shell-backport
+if [ "$version" = 7.4.33 ]; then
+    cp .php-postgres-patches.sha256 /usr/local/share/php-postgres/php74-patches.sha256
+fi

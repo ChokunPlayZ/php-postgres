@@ -48,6 +48,9 @@ jobs:
     - name: Test Debian APT source preparation
       run: python3 tests/apt-sources-test.py
 
+    - name: Test source patch manifests and fail-closed application
+      run: python3 tests/php-patches-test.py
+
     - name: Test HTTP startup readiness
       run: python3 tests/http-readiness-test.py
 

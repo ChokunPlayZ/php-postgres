@@ -47,6 +47,8 @@ Already-running containers are not patched by a repository change: after a succe
 
 Keep application dependencies patched (`composer audit --locked`), validate uploads and user input, isolate database credentials and restrict outbound networking. Never mount the Docker socket or run these containers privileged. Set container memory/CPU limits and use `--security-opt no-new-privileges:true`; server master processes still start as root and drop privileges to `www-data` for request workers. These images are not a sandbox for untrusted PHP.
 
+If using `--cap-drop ALL`, retain `CHOWN`, `SETUID`, `SETGID`, `KILL` and `NET_BIND_SERVICE`, as in the smoke tests. `KILL` lets the root master processes signal their `www-data` workers; removing it can prevent PHP-FPM/Nginx from shutting down.
+
 Session cookies default to HttpOnly and SameSite=Lax. Set `session.cookie_secure=On` in a trusted INI file for HTTPS deployments; HSTS and a site-specific CSP belong at your TLS/application boundary.
 
 ## Included PHP Extensions
@@ -187,8 +189,9 @@ Use a native builder for legacy images: QEMU-emulated ARM64 builds can segfault 
 bash tests/smoke.sh php-postgres:8.4
 bash tests/smoke.sh php-postgres:8.4-nginx nginx
 
-# Test build arguments, APT sources, HTTP readiness and supervision without Docker
+# Test commands, container permissions, APT, HTTP readiness and supervision without Docker
 python3 tests/build-script-test.py
+python3 tests/smoke-command-test.py
 python3 tests/apt-sources-test.py
 python3 tests/http-readiness-test.py
 python3 tests/nginx-start-test.py # Lifecycle tests require Bash 4.3+; skipped on older Bash

@@ -40,9 +40,10 @@ case "$branch" in
         ;;
 esac
 
+# Masters need KILL to stop their www-data workers after the workers change UID.
 docker run -d --name "$container" --memory 512m --cpus 2 \
     --security-opt no-new-privileges:true --cap-drop ALL --cap-add CHOWN \
-    --cap-add SETUID --cap-add SETGID --cap-add NET_BIND_SERVICE \
+    --cap-add SETUID --cap-add SETGID --cap-add KILL --cap-add NET_BIND_SERVICE \
     -p 127.0.0.1::80 "$image" > /dev/null
 port="$(docker port "$container" 80/tcp)"
 base="http://$port"

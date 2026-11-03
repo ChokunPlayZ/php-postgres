@@ -42,6 +42,9 @@ jobs:
     - name: Test local build command safety
       run: python3 tests/build-script-test.py
 
+    - name: Test smoke-test container permissions
+      run: python3 tests/smoke-command-test.py
+
     - name: Test Debian APT source preparation
       run: python3 tests/apt-sources-test.py
 

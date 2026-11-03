@@ -46,8 +46,7 @@ docker run -d --name "$container" --memory 512m --cpus 2 \
     -p 127.0.0.1::80 "$image" > /dev/null
 port="$(docker port "$container" 80/tcp)"
 base="http://$port"
-curl --fail --silent --show-error --retry 30 --retry-connrefused --retry-delay 1 \
-    --max-time 3 "$base/healthz" | grep -qx OK
+bash "$root/tests/wait-http.sh" "$base/healthz"
 curl --fail --silent --show-error --retry 30 --retry-connrefused --retry-delay 1 \
     --max-time 3 "$base/" | grep -qx 'PHP application container is running.'
 
@@ -95,8 +94,7 @@ if [[ "$flavor" == nginx ]]; then
     python3 -c 'import subprocess, sys; result = subprocess.run(["docker", "wait", sys.argv[1]], capture_output=True, text=True, timeout=20, check=True); assert int(result.stdout) != 0, result' "$container"
     docker start "$container" > /dev/null
     port="$(docker port "$container" 80/tcp)"
-    curl --fail --silent --show-error --retry 30 --retry-connrefused --retry-delay 1 \
-        --max-time 3 "http://$port/healthz" | grep -qx OK
+    bash "$root/tests/wait-http.sh" "http://$port/healthz"
     docker stop --time 15 "$container" > /dev/null
     [[ "$(docker inspect --format '{{.State.ExitCode}}' "$container")" == 0 ]]
 fi

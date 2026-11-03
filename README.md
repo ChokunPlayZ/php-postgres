@@ -166,7 +166,9 @@ RUN if [ -f "composer.json" ]; then \
 
 You can build and test images locally using the provided `./build.sh` script. It uses `Dockerfile` for Apache (the default) or `Dockerfile.nginx` for `--flavor nginx`, passing the PHP branch with `--build-arg PHP_VERSION` in both cases. Nginx builds are tagged with `-nginx` and never overwrite Apache tags.
 
-Container smoke tests require a running Docker daemon, Bash, curl and Python 3. Downstream extension builds must install their development packages (including `$PHPIZE_DEPS`) first, since compilers are no longer retained in the runtime image.
+Container smoke tests require a running Docker daemon, Bash, curl 7.71+ and Python 3. Startup health probes retry connection resets and empty replies within a bounded retry window; subsequent security assertions still fail normally. Downstream extension builds must install their development packages (including `$PHPIZE_DEPS`) first, since compilers are no longer retained in the runtime image.
+
+Use a native builder for legacy images: QEMU-emulated ARM64 builds can segfault while upgrading Debian Bullseye's `libc-bin` (post-install script exit 139). Build ARM64 on an ARM64 Docker host and AMD64 on an AMD64 host; do not skip package upgrades to bypass this failure.
 
 ```bash
 # Build default version (PHP 8.4), refreshing packages as well as the base
@@ -185,15 +187,18 @@ Container smoke tests require a running Docker daemon, Bash, curl and Python 3. 
 bash tests/smoke.sh php-postgres:8.4
 bash tests/smoke.sh php-postgres:8.4-nginx nginx
 
-# Test build-script arguments, APT sources and process supervision without Docker
+# Test build arguments, APT sources, HTTP readiness and supervision without Docker
 python3 tests/build-script-test.py
 python3 tests/apt-sources-test.py
+python3 tests/http-readiness-test.py
 python3 tests/nginx-start-test.py # Lifecycle tests require Bash 4.3+; skipped on older Bash
 ```
 
 ## GitHub Actions Automated Builds
 
 This project is configured with GitHub Actions to automatically build and push multi-architecture (`amd64` and `arm64`) Docker images to **GitHub Container Registry (GHCR)**.
+
+Builds and smoke tests run on native `ubuntu-24.04` (AMD64) and `ubuntu-24.04-arm` (ARM64) runners, without QEMU emulation. Each job verifies the Docker daemon architecture before building.
 
 - **Triggers**:
   - Pushes to the `main` branch

@@ -19,7 +19,7 @@ env:
 
 jobs:
   security-check:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
@@ -29,6 +29,12 @@ jobs:
         php-version: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
         flavor: ['apache', 'nginx']
         arch: ['amd64', 'arm64']
+        # Build and smoke-test natively: QEMU can segfault in Bullseye's libc-bin upgrade.
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -39,11 +45,21 @@ jobs:
     - name: Test Debian APT source preparation
       run: python3 tests/apt-sources-test.py
 
+    - name: Test HTTP startup readiness
+      run: python3 tests/http-readiness-test.py
+
     - name: Test Nginx process lifecycle
       run: python3 tests/nginx-start-test.py
 
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@v3
+    - name: Verify native Docker architecture
+      env:
+        TARGET_ARCH: ${{ matrix.arch }}
+      run: |
+        actual_arch="$(docker version --format '{{.Server.Arch}}')"
+        if [ "$actual_arch" != "$TARGET_ARCH" ]; then
+          echo "::error::Expected native $TARGET_ARCH Docker daemon, got $actual_arch"
+          exit 1
+        fi
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3

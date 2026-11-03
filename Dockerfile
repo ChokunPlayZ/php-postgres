@@ -12,7 +12,7 @@ COPY docker/php-security.ini /usr/local/etc/php/conf.d/zz-security.ini
 COPY docker/apache-security.conf /etc/apache2/conf-available/zz-php-postgres-security.conf
 RUN set -eux; \
     a2enmod rewrite headers reqtimeout; \
-    a2dismod autoindex status; \
+    a2dismod -f autoindex status; \
     a2enconf zz-php-postgres-security; \
     mkdir -p /usr/local/share/php-postgres; \
     printf 'OK\n' > /usr/local/share/php-postgres/health.txt; \

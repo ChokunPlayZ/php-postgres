@@ -36,6 +36,9 @@ jobs:
     - name: Test local build command safety
       run: python3 tests/build-script-test.py
 
+    - name: Test Debian APT source preparation
+      run: python3 tests/apt-sources-test.py
+
     - name: Test Nginx process lifecycle
       run: python3 tests/nginx-start-test.py
 

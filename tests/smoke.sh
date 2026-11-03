@@ -62,10 +62,13 @@ docker cp "$root/tests/fixtures/secret.txt" "$container:/var/www/html/composer.j
 docker cp "$root/tests/fixtures/secret.txt" "$container:/var/www/html/listing/visible.txt"
 docker cp "$root/tests/fixtures/upload.php" "$container:/var/www/html/uploads/payload.php"
 docker cp "$root/tests/fixtures/upload.php" "$container:/var/www/html/uploads/payload.phtml"
-for path in /.env /.git/config /composer.json /uploads/payload.php /uploads/payload.phtml /listing/; do
+for path in /.env /.git/config /composer.json /uploads/payload.php /uploads/payload.phtml; do
     status="$(curl --path-as-is --silent --show-error -o /dev/null -w '%{http_code}' "$base$path")"
     [[ "$status" == 403 ]] || { echo >&2 "$path returned $status, expected 403"; exit 1; }
 done
+# Apache without mod_autoindex can return 404 instead of 403; neither may list files.
+status="$(curl --silent --show-error -o /dev/null -w '%{http_code}' "$base/listing/")"
+[[ "$status" == 403 || "$status" == 404 ]] || { echo >&2 "/listing/ returned $status, expected 403 or 404"; exit 1; }
 [[ "$(curl --silent --show-error -X TRACE -o /dev/null -w '%{http_code}' "$base/")" == 405 ]]
 headers="$(curl --fail --silent --show-error -D - -o /dev/null "$base/")"
 if printf '%s\n' "$headers" | grep -Eiq '^X-Powered-By:|^Server:.*(PHP|/[0-9])'; then

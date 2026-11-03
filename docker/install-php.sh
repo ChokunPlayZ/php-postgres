@@ -15,7 +15,7 @@ esac
 # Do not retain the compilers inherited from the official image in the runtime.
 apt-mark auto autoconf dpkg-dev file g++ gcc libc6-dev make pkg-config re2c > /dev/null
 saved_apt_mark="$(apt-mark showmanual)"
-apt-get update
+sh "$policy/prepare-apt.sh"
 apt-get upgrade -y --with-new-pkgs \
     -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
 runtime_packages="ca-certificates curl git unzip"
@@ -45,6 +45,8 @@ docker-php-ext-install -j"$(nproc)" \
 if ! php -r 'exit(extension_loaded("Zend OPcache") ? 0 : 1);'; then
     docker-php-ext-install -j"$(nproc)" opcache
 fi
+# Legacy images ship stale PECL channel metadata; refresh before resolving Redis.
+pecl channel-update pecl.php.net
 pecl install redis-6.3.0
 docker-php-ext-enable redis
 

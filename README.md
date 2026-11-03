@@ -26,6 +26,8 @@ For **7.4.33, 8.0.30 and 8.1.34**, the build applies the PHP security team's [of
 
 **Legacy PHP remains end-of-life. These minimal backports address PHP2Shell, not all other known or future PHP CVEs.** Upgrade to maintained PHP or use an extended-security vendor if you need comprehensive legacy coverage. PHP 7.0–7.3 are not supported by this project. See [PHP's support schedule](https://www.php.net/supported-versions.php); PHP 8.2 reaches EOL on December 31, 2026.
 
+Debian Bullseye bases use Debian's frozen archive for security packages because those package files are no longer on the live security mirror. Archive signatures remain verified, but **this does not provide ongoing OS security updates**. Newer Debian bases keep their normal repositories.
+
 `session.upload_progress.enabled=Off` is applied before request parsing and locked in Apache or PHP-FPM configuration. This also blocks the follow-up session vector **CVE-2026-115560**, per [PHP's October 23 advisory](https://www.php.net/archive/2026.php#2026-10-23-1). Disabling this feature alone is **not** a PHP2Shell fix.
 
 Already-running containers are not patched by a repository change: after a successful image publication, **pull and recreate every web container and long-running PHP worker**, including derived application images. For Compose: `docker compose pull && docker compose up -d --force-recreate`. Rebuild derived images with `docker build --pull --no-cache` first. Old registry digests and cached copies remain vulnerable.
@@ -183,8 +185,9 @@ Container smoke tests require a running Docker daemon, Bash, curl and Python 3. 
 bash tests/smoke.sh php-postgres:8.4
 bash tests/smoke.sh php-postgres:8.4-nginx nginx
 
-# Test build-script arguments and process supervision without Docker
+# Test build-script arguments, APT sources and process supervision without Docker
 python3 tests/build-script-test.py
+python3 tests/apt-sources-test.py
 python3 tests/nginx-start-test.py # Lifecycle tests require Bash 4.3+; skipped on older Bash
 ```
 

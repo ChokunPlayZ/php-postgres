@@ -1,14 +1,15 @@
 #!/bin/bash
 
 # Build script for PHP PostgreSQL Docker image
-# This script builds the Docker image using the Dockerfile.php7.4
+# Builds from the unified Dockerfile and always refreshes the upstream base.
 
-set -e  # Exit on any error
+set -euo pipefail
 
 # Configuration
 IMAGE_NAME="php-postgres"
-IMAGE_TAG="8.2"
+IMAGE_TAG="8.4"
 DOCKERFILE="Dockerfile"
+BUILD_FLAGS=(--pull)
 
 # Colors for output
 RED='\033[0;31m'
@@ -69,18 +70,16 @@ build_image() {
     print_info "Using Dockerfile: $DOCKERFILE"
     
     # Build the image
-    if docker build -f "$DOCKERFILE" --build-arg PHP_VERSION="$IMAGE_TAG" -t "$IMAGE_NAME:$IMAGE_TAG" .; then
+    if docker build "${BUILD_FLAGS[@]}" -f "$DOCKERFILE" --build-arg PHP_VERSION="$IMAGE_TAG" -t "$IMAGE_NAME:$IMAGE_TAG" .; then
         print_success "Docker image built successfully: $IMAGE_NAME:$IMAGE_TAG"
     else
         print_error "Failed to build Docker image"
         exit 1
     fi
     
-    # Also tag as latest
-    if docker tag "$IMAGE_NAME:$IMAGE_TAG" "$IMAGE_NAME:latest"; then
+    # Never let an EOL or older branch replace the default latest tag.
+    if [[ "$IMAGE_TAG" == "8.4" ]] && docker tag "$IMAGE_NAME:$IMAGE_TAG" "$IMAGE_NAME:latest"; then
         print_success "Image tagged as: $IMAGE_NAME:latest"
-    else
-        print_warning "Failed to tag image as latest"
     fi
 }
 
@@ -116,6 +115,14 @@ main() {
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --name|--tag|--dockerfile)
+            if [[ $# -lt 2 || -z "$2" || "$2" == --* ]]; then
+                print_error "Option $1 requires a value"
+                exit 1
+            fi
+            ;;
+    esac
+    case $1 in
         --name)
             IMAGE_NAME="$2"
             shift 2
@@ -128,13 +135,18 @@ while [[ $# -gt 0 ]]; do
             DOCKERFILE="$2"
             shift 2
             ;;
+        --no-cache)
+            BUILD_FLAGS+=(--no-cache)
+            shift
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
             echo "  --name NAME        Set the image name (default: php-postgres)"
-            echo "  --tag TAG          Set the PHP version / tag (default: 8.2)"
+            echo "  --tag TAG          Set the PHP version / tag (default: 8.4)"
             echo "  --dockerfile FILE  Set the Dockerfile to use (default: Dockerfile)"
+            echo "  --no-cache         Refresh OS packages and all build layers"
             echo "  -h, --help         Show this help message"
             echo ""
             echo "Examples:"

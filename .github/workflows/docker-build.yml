@@ -6,13 +6,19 @@ on:
     tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build-and-push:
+  security-check:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -20,14 +26,117 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php-version: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4']
-    
+        php-version: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
+        arch: ['amd64', 'arm64']
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    - name: Test local build command safety
+      run: python3 tests/build-script-test.py
+
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build candidate
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        load: true
+        pull: true
+        no-cache: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        platforms: linux/${{ matrix.arch }}
+        build-args: PHP_VERSION=${{ matrix.php-version }}
+        tags: php-postgres:security-test
+        labels: |
+          org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          org.opencontainers.image.revision=${{ github.sha }}
+          org.opencontainers.image.version=php-${{ matrix.php-version }}
+        cache-from: type=gha,scope=php${{ matrix.php-version }}-${{ matrix.arch }}
+        cache-to: type=gha,mode=max,scope=php${{ matrix.php-version }}-${{ matrix.arch }}
+
+    - name: Test engine backport, PHP settings and Apache protections
+      run: bash tests/smoke.sh php-postgres:security-test
+
+    - name: Report all known image vulnerabilities (including unfixed)
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      with:
+        image-ref: php-postgres:security-test
+        format: json
+        output: trivy-report.json
+        exit-code: '0'
+        ignore-unfixed: false
+        scanners: vuln
+      env:
+        TRIVY_PLATFORM: linux/${{ matrix.arch }}
+
+    - name: Upload vulnerability report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: vulnerabilities-php${{ matrix.php-version }}-${{ matrix.arch }}
+        path: trivy-report.json
+
+    - name: Block fixable high and critical vulnerabilities
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      with:
+        image-ref: php-postgres:security-test
+        format: table
+        exit-code: '1'
+        ignore-unfixed: true
+        severity: HIGH,CRITICAL
+        scanners: vuln
+        skip-setup-trivy: true
+      env:
+        TRIVY_PLATFORM: linux/${{ matrix.arch }}
+
+    - name: Log in to GitHub Container Registry
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Push the exact tested image to a staging tag
+      if: github.event_name != 'pull_request'
+      env:
+        PHP_BRANCH: ${{ matrix.php-version }}
+        ARCH: ${{ matrix.arch }}
+      run: |
+        repository="${REGISTRY}/${IMAGE_NAME,,}"
+        reference="$repository:build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-php${PHP_BRANCH}-${ARCH}"
+        docker tag php-postgres:security-test "$reference"
+        docker push "$reference"
+        mkdir -p "$RUNNER_TEMP/digests"
+        docker image inspect --format='{{index .RepoDigests 0}}' "$reference" > "$RUNNER_TEMP/digests/$ARCH"
+
+    - name: Export tested digest
+      if: github.event_name != 'pull_request'
+      uses: actions/upload-artifact@v4
+      with:
+        name: digests-php${{ matrix.php-version }}-${{ matrix.arch }}
+        path: ${{ runner.temp }}/digests/*
+        retention-days: 1
+
+  build-and-push:
+    needs: security-check
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -55,16 +164,21 @@ jobs:
           type=raw,value=${{ matrix.php-version }}-latest
           type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' && matrix.php-version == '8.4' }}
 
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v5
+    - name: Download tested platform digests
+      uses: actions/download-artifact@v4
       with:
-        context: .
-        file: ./Dockerfile
-        build-args: |
-          PHP_VERSION=${{ matrix.php-version }}
-        platforms: linux/amd64,linux/arm64
-        push: ${{ github.event_name != 'pull_request' }}
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        pattern: digests-php${{ matrix.php-version }}-*
+        path: ${{ runner.temp }}/digests
+        merge-multiple: true
+
+    - name: Publish multi-architecture tags without rebuilding
+      env:
+        METADATA_JSON: ${{ steps.meta.outputs.json }}
+      run: |
+        tags=()
+        while IFS= read -r tag; do
+          tags+=(--tag "$tag")
+        done < <(jq -r '.tags[]' <<< "$METADATA_JSON")
+        docker buildx imagetools create "${tags[@]}" \
+          "$(cat "$RUNNER_TEMP/digests/amd64")" \
+          "$(cat "$RUNNER_TEMP/digests/arm64")"

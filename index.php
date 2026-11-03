@@ -1,4 +1,11 @@
 <?php
+// Do not expose runtime/database diagnostics on a fresh production deployment.
+if (getenv('ENABLE_STARTER_DASHBOARD') !== '1') {
+    header('Content-Type: text/plain; charset=UTF-8');
+    echo "PHP application container is running.\n";
+    return;
+}
+
 // PHP Apache PostgreSQL Starter Dashboard
 // Dynamically verifies environment setup and provides configuration details.
 
@@ -13,7 +20,7 @@ $pgsql_extensions = array_filter($extensions, function($ext) {
 
 // Database connection variables
 $db_host = $_ENV['DB_HOST'] ?? getenv('DB_HOST');
-$db_port = $_ENV['DB_PORT'] ?? getenv('DB_PORT') ?? '5432';
+$db_port = $_ENV['DB_PORT'] ?? (getenv('DB_PORT') ?: '5432');
 $db_name = $_ENV['DB_NAME'] ?? getenv('DB_NAME');
 $db_user = $_ENV['DB_USER'] ?? getenv('DB_USER');
 $db_pass = $_ENV['DB_PASS'] ?? getenv('DB_PASS');
@@ -36,7 +43,8 @@ if ($db_host && $db_name && $db_user) {
         $db_version = $pdo->query('SELECT version()')->fetchColumn();
         $db_time = $pdo->query('SELECT NOW() as current_time')->fetch()['current_time'];
     } catch (PDOException $e) {
-        $db_error = $e->getMessage();
+        error_log('Starter dashboard database connection failed.');
+        $db_error = 'Connection failed. Check the database configuration and server logs.';
     }
 }
 ?>
@@ -513,7 +521,7 @@ $host = getenv('DB_HOST') ?: 'localhost';
 $port = getenv('DB_PORT') ?: '5432';
 $dbname = getenv('DB_NAME') ?: 'postgres';
 $user = getenv('DB_USER') ?: 'postgres';
-$password = getenv('DB_PASS') ?: 'password';
+$password = getenv('DB_PASS');
 
 try {
     $dsn = "pgsql:host=$host;port=$port;dbname=$dbname";
@@ -523,7 +531,8 @@ try {
     
     echo "Successfully connected to PostgreSQL!";
 } catch (PDOException $e) {
-    echo "Connection failed: " . $e->getMessage();
+    error_log('Database connection failed.');
+    echo "Database unavailable.";
 }
 ?&gt;</code></pre>
                 </div>
@@ -541,7 +550,7 @@ try {
                 </p>
                 <div style="font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.5rem; color: var(--text-secondary);">
                     <p>🌐 <strong>Port Forwarding:</strong> Map port 80 to access the Apache web server (e.g. <code>-p 8080:80</code>).</p>
-                    <p>⚙️ <strong>Apache Settings:</strong> Rewrite module is loaded; use <code>.htaccess</code> files freely.</p>
+                    <p>⚙️ <strong>Apache Settings:</strong> Rewrite and authentication rules are supported in <code>.htaccess</code>; PHP overrides are disabled.</p>
                     <p>📦 <strong>Composer:</strong> Available globally in the shell as <code>composer</code>.</p>
                 </div>
             </div>

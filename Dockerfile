@@ -1,84 +1,35 @@
-# Use ARG to set the PHP version (default to 8.2)
-ARG PHP_VERSION=8.2
+# Minor tags receive upstream security releases; the runtime policy rejects stale bases.
+ARG PHP_VERSION=8.4
 FROM php:${PHP_VERSION}-apache
 
-# Avoid prompt during installations
-ENV DEBIAN_FRONTEND=noninteractive
+COPY docker/ /usr/local/lib/php-postgres/
 
-# Install common system dependencies and development libraries
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    apt-utils \
-    build-essential \
-    curl \
-    git \
-    libpq-dev \
-    libpng-dev \
-    libjpeg-dev \
-    libfreetype6-dev \
-    libwebp-dev \
-    libzip-dev \
-    libxml2-dev \
-    libcurl4-openssl-dev \
-    libssl-dev \
-    libonig-dev \
-    libicu-dev \
-    libbz2-dev \
-    zlib1g-dev \
-    unzip \
-    && rm -rf /var/lib/apt/lists/*
+# Rebuild legacy engines with the official PHP2Shell backports before building extensions.
+RUN sh /usr/local/lib/php-postgres/install-php.sh
 
-# Enable Apache rewrite module
-RUN a2enmod rewrite
+RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
+COPY docker/php-security.ini /usr/local/etc/php/conf.d/zz-security.ini
+COPY docker/apache-security.conf /etc/apache2/conf-available/zz-php-postgres-security.conf
+RUN set -eux; \
+    a2enmod rewrite headers reqtimeout; \
+    a2dismod autoindex status; \
+    a2enconf zz-php-postgres-security; \
+    mkdir -p /usr/local/share/php-postgres; \
+    printf 'OK\n' > /usr/local/share/php-postgres/health.txt; \
+    php /usr/local/lib/php-postgres/security-policy.php; \
+    apache2ctl configtest
 
-# Configure GD extension
-RUN docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp
+# Stay on Composer's stable major, not an unbounded latest tag.
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# Install commonly required PHP extensions
-RUN docker-php-ext-install -j$(nproc) \
-    bcmath \
-    bz2 \
-    calendar \
-    exif \
-    gd \
-    gettext \
-    intl \
-    mbstring \
-    mysqli \
-    opcache \
-    pcntl \
-    pdo \
-    pdo_mysql \
-    pdo_pgsql \
-    pgsql \
-    soap \
-    sockets \
-    xml \
-    zip
-
-# Install Redis extension via PECL
-RUN pecl install redis && docker-php-ext-enable redis
-
-# Recommended OPcache settings
-RUN { \
-        echo 'opcache.memory_consumption=128'; \
-        echo 'opcache.interned_strings_buffer=8'; \
-        echo 'opcache.max_accelerated_files=10000'; \
-        echo 'opcache.revalidate_freq=2'; \
-        echo 'opcache.fast_shutdown=1'; \
-        echo 'opcache.enable_cli=1'; \
-    } > /usr/local/etc/php/conf.d/opcache-recommended.ini
-
-# Install Composer
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
-
-# Set working directory
 WORKDIR /var/www/html
-
-# Copy default index.php if not overridden
 COPY index.php .
 
-# Healthcheck
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 CMD [ "curl", "-f", "http://localhost/" ]
+# Application code must not be writable by the web worker. Grant write access only
+# to application-specific cache/upload directories in derived images.
+RUN chown root:root /var/www/html /var/www/html/index.php \
+    && chmod 0755 /var/www/html \
+    && chmod 0644 /var/www/html/index.php
 
-# Change ownership of web root to www-data
-RUN chown -R www-data:www-data /var/www/html
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["curl", "--fail", "--silent", "--show-error", "--max-time", "3", "http://127.0.0.1/healthz"]
